@@ -4,7 +4,7 @@
   "version": "1.0",
   "description": "Muestra un mensaje de bienvenida",
   "action": {
-    "default_popup": "popup.html"
+    "default_popup": "htmls/popup.html"
   },
   "permissions": ["tabs"]
 }

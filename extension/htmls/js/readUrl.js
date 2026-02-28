@@ -3,6 +3,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 	const mensaje = document.getElementById("mensaje");
 	const boton = document.getElementById("cambiar");
 	const casillaTexto = document.getElementById("input-text");
+	const casillaWeb = document.getElementById("input-website");
 
 	// Obtener la pestaña activa
 	const tabs = await browser.tabs.query({
@@ -11,6 +12,8 @@ document.addEventListener("DOMContentLoaded", async () => {
 	});
 
 	const url = tabs[0].url;
+
+	casillaWeb.textContent = new URL(url).hostname;
 
 	// Extraer el dominio (ej: amazon.com)
 	const dominio = new URL(url).hostname;
