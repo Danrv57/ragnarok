@@ -12,6 +12,8 @@ document.addEventListener("DOMContentLoaded", async () => {
 
 	const url = tabs[0].url;
 
+
+
 	// Extraer el dominio (ej: amazon.com)
 	const dominio = new URL(url).hostname;
 
@@ -33,7 +35,8 @@ document.addEventListener("DOMContentLoaded", async () => {
 		}
 		mostrandoUrl = !mostrandoUrl;
 	})
-	casillaTexto.addEventListener("input", () =>{
+
+	casillaTexto.addEventListener("change", () =>{
 		const texto = casillaTexto.value;
 		mensaje.textContent = `Introdujiste ${texto}`
 	})

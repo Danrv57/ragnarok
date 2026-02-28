@@ -26,16 +26,21 @@
 		padding: 5px;
 		width: 80%;
 	}
+	#enlace-logins {
+		margin-top: 10px;
+	}
   </style>
 </head>
 <body>
-	<a href="logins">
+	<button id="cambiar">Cambiar</button>
+<<<<<<< HEAD:extension/htmls/popup.html
+	<p id="enlace-logins"><a href="logins.html">Ir a Logins</a></p>
   <h2 id="mensaje"></h2>
   <input
 		  type="text"
 		  id="input-text"
 		  placeholder="escribe"
 	/>
-  <script src="readUrl.js"></script>
+  <script src="js/readUrl.js"></script>
 </body>
 </html>
