@@ -19,6 +19,6 @@
       "js": ["htmls/content.js"]
     }
   ],
-  "permissions": ["tabs", "storage", "notifications", "webRequest"],
+  "permissions": ["tabs", "storage", "notifications", "webRequest", "windows"],
   "host_permissions": ["<all_urls>"]
 }

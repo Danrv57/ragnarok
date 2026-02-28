@@ -32,9 +32,16 @@ browser.runtime.onMessage.addListener((request, sender, sendResponse) => {
             popupMode: 'save',
             popupData: pendingPassword
         }).then(() => {
-            console.log('🔐 [BG] Storage saved, opening options page...');
-            browser.runtime.openOptionsPage().catch((error) => {
-                console.error('🔐 [BG] Error opening options page:', error);
+            console.log('🔐 [BG] Storage saved, opening popup window...');
+            browser.windows.create({
+                url: browser.runtime.getURL('htmls/password-popup.html'),
+                type: 'popup',
+                width: 400,
+                height: 350,
+                left: 100,
+                top: 100
+            }).catch((error) => {
+                console.error('🔐 [BG] Error opening popup window:', error);
             });
         }).catch(err => {
             console.error('🔐 [BG] Error saving to storage:', err);
@@ -240,9 +247,16 @@ async function fetchAndShowAutofill(url, tabId) {
                 popupMode: 'autofill',
                 popupData: pendingAutofill
             }).then(() => {
-                console.log('Opening options page for autofill');
-                browser.runtime.openOptionsPage().catch((error) => {
-                    console.error('Error opening options page:', error);
+                console.log('🔐 [BG] Opening popup window for autofill');
+                browser.windows.create({
+                    url: browser.runtime.getURL('htmls/password-popup.html'),
+                    type: 'popup',
+                    width: 400,
+                    height: 300,
+                    left: 100,
+                    top: 100
+                }).catch((error) => {
+                    console.error('🔐 [BG] Error opening popup window:', error);
                 });
             });
         } else {
@@ -269,7 +283,14 @@ window.testPopup = function() {
         }
     }).then(() => {
         console.log('🔐 Test data saved to storage');
-        browser.runtime.openOptionsPage().catch(err => {
+        browser.windows.create({
+            url: browser.runtime.getURL('htmls/password-popup.html'),
+            type: 'popup',
+            width: 400,
+            height: 350,
+            left: 100,
+            top: 100
+        }).catch(err => {
             console.error('🔐 Error opening popup:', err);
         });
     });
