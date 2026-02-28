@@ -15,36 +15,45 @@ browser.runtime.onMessage.addListener((request, sender, sendResponse) => {
             url: request.url,
             passwordLength: request.password ? request.password.length : 0
         });
-        pendingPassword = {
-            url: request.url,
-            email: request.email,
-            password: request.password
-        };
         
-        console.log('🔐 [BG] Pending password stored:', {
-            url: pendingPassword.url,
-            email: pendingPassword.email,
-            passwordLength: pendingPassword.password ? pendingPassword.password.length : 0
-        });
-        
-        // Guardar en storage local para persistencia
-        browser.storage.local.set({
-            popupMode: 'save',
-            popupData: pendingPassword
-        }).then(() => {
-            console.log('🔐 [BG] Storage saved, opening popup window...');
-            browser.windows.create({
-                url: browser.runtime.getURL('htmls/password-popup.html'),
-                type: 'popup',
-                width: 400,
-                height: 350,
-                left: 100,
-                top: 100
-            }).catch((error) => {
-                console.error('🔐 [BG] Error opening popup window:', error);
+        // Verificar si ya existe un login para esta página
+        checkIfPasswordExists(request.url, request.email).then(exists => {
+            if (exists) {
+                console.log('🔐 [BG] Password already exists for this page, skipping save prompt');
+                return;
+            }
+            
+            pendingPassword = {
+                url: request.url,
+                email: request.email,
+                password: request.password
+            };
+            
+            console.log('🔐 [BG] Pending password stored:', {
+                url: pendingPassword.url,
+                email: pendingPassword.email,
+                passwordLength: pendingPassword.password ? pendingPassword.password.length : 0
             });
-        }).catch(err => {
-            console.error('🔐 [BG] Error saving to storage:', err);
+            
+            // Guardar en storage local para persistencia
+            browser.storage.local.set({
+                popupMode: 'save',
+                popupData: pendingPassword
+            }).then(() => {
+                console.log('🔐 [BG] Storage saved, opening popup window...');
+                browser.windows.create({
+                    url: browser.runtime.getURL('htmls/password-popup.html'),
+                    type: 'popup',
+                    width: 400,
+                    height: 350,
+                    left: 100,
+                    top: 100
+                }).catch((error) => {
+                    console.error('🔐 [BG] Error opening popup window:', error);
+                });
+            }).catch(err => {
+                console.error('🔐 [BG] Error saving to storage:', err);
+            });
         });
         sendResponse({ received: true });
         
@@ -119,6 +128,71 @@ browser.runtime.onMessage.addListener((request, sender, sendResponse) => {
         sendResponse({ success: true });
     }
 });
+
+async function checkIfPasswordExists(url, email) {
+    try {
+        const result = await new Promise((resolve) => {
+            browser.storage.local.get(['authToken'], resolve);
+        });
+
+        if (!result.authToken) {
+            console.error('No auth token found');
+            return false;
+        }
+
+        // Hacer GET a /passwords
+        const response = await fetch(
+            'https://ragnarok-uegm.onrender.com/passwords',
+            {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${result.authToken}`
+                }
+            }
+        );
+
+        if (!response.ok) {
+            console.error('Error fetching passwords:', response.statusText);
+            return false;
+        }
+
+        const passwords = await response.json();
+        
+        // Normalizar URL para comparación
+        const normalizeUrl = (urlStr) => {
+            if (!urlStr) return '';
+            const normalized = urlStr.toLowerCase().trim();
+            return normalized
+                .replace(/^(https?:\/\/)?(www\.)?/, '')
+                .replace(/\/$/, '')
+                .split('/')[0];
+        };
+
+        const currentUrlNormalized = normalizeUrl(url);
+        
+        // Buscar si ya existe un login para esta URL
+        const exists = passwords.some(p => {
+            const storedUrl = p.url || '';
+            const storedUrlNormalized = normalizeUrl(storedUrl);
+            
+            // Múltiples estrategias de matching
+            const exactMatch = storedUrlNormalized === currentUrlNormalized;
+            const storedIncludes = storedUrlNormalized.includes(currentUrlNormalized);
+            const currentIncludes = currentUrlNormalized.includes(storedUrlNormalized);
+            const partialMatch = storedUrlNormalized.split('.').slice(-2).join('.') === 
+                                 currentUrlNormalized.split('.').slice(-2).join('.');
+            
+            return exactMatch || storedIncludes || currentIncludes || partialMatch;
+        });
+
+        console.log('🔐 [BG] Password exists for URL:', url, '- Result:', exists);
+        return exists;
+    } catch (error) {
+        console.error('Error checking if password exists:', error);
+        return false;
+    }
+}
 
 async function fetchAndCachePasswords() {
     try {
