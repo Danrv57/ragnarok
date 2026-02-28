@@ -33,7 +33,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 		}
 		mostrandoUrl = !mostrandoUrl;
 	})
-	casillaTexto.addEventListener("input", () =>{
+	casillaTexto.addEventListener("change", updateValue =>{
 		const texto = casillaTexto.value();
 		mensaje.textContent = `Introdujiste ${texto}`
 	})
