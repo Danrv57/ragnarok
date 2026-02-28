@@ -3,7 +3,6 @@ document.addEventListener("DOMContentLoaded", async () => {
 	const mensaje = document.getElementById("mensaje");
 	const boton = document.getElementById("cambiar");
 	const casillaTexto = document.getElementById("input-text");
-	const casillaWeb = document.getElementById("input-website");
 
 	// Obtener la pestaña activa
 	const tabs = await browser.tabs.query({
@@ -36,6 +35,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 		}
 		mostrandoUrl = !mostrandoUrl;
 	})
+
 	casillaTexto.addEventListener("change", () =>{
 		const texto = casillaTexto.value;
 		mensaje.textContent = `Introdujiste ${texto}`

@@ -13,13 +13,15 @@ document.addEventListener("DOMContentLoaded", async () => {
 
 	const url = tabs[0].url;
 
-	casillaWeb.textContent = new URL(url).hostname;
+
 
 	// Extraer el dominio (ej: amazon.com)
 	const dominio = new URL(url).hostname;
 
 	// Quitar "www."
 	const limpio = dominio.replace("www.", "");
+
+	casillaWeb.value = dominio;
 
 	mensaje.textContent = `Bienvenido a ${limpio}`;
 	
@@ -36,6 +38,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 		}
 		mostrandoUrl = !mostrandoUrl;
 	})
+
 	casillaTexto.addEventListener("change", () =>{
 		const texto = casillaTexto.value;
 		mensaje.textContent = `Introdujiste ${texto}`
