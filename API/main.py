@@ -1,16 +1,28 @@
 from fastapi import FastAPI, HTTPException, Cookie, Response
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
 import json
 import base64
 import os
 import uuid
+import random
+import string
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 import hashlib
 
 app = FastAPI()
+
+# Configurar CORS para permitir cookies desde el frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],  # Ajusta según tu frontend
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Diccionario para almacenar sesiones activas
 sesiones_activas = {}
@@ -45,6 +57,13 @@ class LoginData(BaseModel):
     email: str
     password: str
 
+class PasswordGeneratorRequest(BaseModel):
+    longitud: int
+    mayusculas: bool = False
+    minusculas: bool = False
+    digitos: bool = False
+    simbolos: bool = False
+
 # Funciones de encriptación
 def generar_clave_usuario(password_usuario: str, salt: bytes) -> bytes:
     """Genera una clave única para cada usuario basada en su contraseña"""
@@ -69,7 +88,8 @@ def desencriptar_password(password_encriptada: str, clave: bytes) -> str:
         f = Fernet(clave)
         decrypted = f.decrypt(password_encriptada.encode())
         return decrypted.decode()
-    except:
+    except Exception as e:
+        print(f"Error desencriptando: {e}")
         return "[ERROR: No se puede desencriptar]"
 
 def hash_password(password: str, salt: str) -> str:
@@ -80,6 +100,73 @@ def hash_password(password: str, salt: str) -> str:
 def verificar_password(password: str, salt: str, hash_almacenado: str) -> bool:
     """Verifica si la contraseña proporcionada coincide con el hash almacenado"""
     return hash_password(password, salt) == hash_almacenado
+
+# Función para generar contraseñas seguras
+def generar_password_seguro(longitud: int, mayusculas: bool, minusculas: bool, digitos: bool, simbolos: bool) -> str:
+    """
+    Genera una contraseña aleatoria segura basada en los criterios especificados.
+    
+    Args:
+        longitud: Número de caracteres de la contraseña
+        mayusculas: Incluir letras mayúsculas (A-Z)
+        minusculas: Incluir letras minúsculas (a-z)
+        digitos: Incluir dígitos (0-9)
+        simbolos: Incluir símbolos especiales (!@#$%^&*()_+-=[]{}|;:,.<>?)
+    
+    Returns:
+        Una contraseña aleatoria que cumple con los criterios especificados
+    """
+    # Validar que al menos un tipo de carácter esté seleccionado
+    if not any([mayusculas, minusculas, digitos, simbolos]):
+        raise ValueError("Debes seleccionar al menos un tipo de carácter")
+    
+    # Validar que la longitud sea positiva
+    if longitud < 1:
+        raise ValueError("La longitud debe ser al menos 1")
+    
+    # Validar que la longitud no sea excesiva (por seguridad)
+    if longitud > 128:
+        raise ValueError("La longitud máxima permitida es 128 caracteres")
+    
+    # Construir el conjunto de caracteres disponibles
+    caracteres = ""
+    
+    if mayusculas:
+        caracteres += string.ascii_uppercase
+    if minusculas:
+        caracteres += string.ascii_lowercase
+    if digitos:
+        caracteres += string.digits
+    if simbolos:
+        caracteres += "!@#$%^&*()_+-=[]{}|;:,.<>?"
+    
+    # Asegurar que la contraseña contenga al menos un carácter de cada tipo seleccionado
+    password = []
+    
+    # Función para obtener un carácter aleatorio de un conjunto específico
+    def get_random_char(char_set):
+        return random.choice(char_set)
+    
+    # Añadir al menos un carácter de cada tipo seleccionado
+    if mayusculas:
+        password.append(get_random_char(string.ascii_uppercase))
+    if minusculas:
+        password.append(get_random_char(string.ascii_lowercase))
+    if digitos:
+        password.append(get_random_char(string.digits))
+    if simbolos:
+        password.append(get_random_char("!@#$%^&*()_+-=[]{}|;:,.<>?"))
+    
+    # Completar el resto de la longitud con caracteres aleatorios del conjunto completo
+    caracteres_restantes = longitud - len(password)
+    for _ in range(caracteres_restantes):
+        password.append(random.choice(caracteres))
+    
+    # Mezclar la contraseña para evitar que los primeros caracteres sean siempre del mismo tipo
+    random.shuffle(password)
+    
+    # Unir la lista en una cadena
+    return ''.join(password)
 
 # Funciones para manejar los JSONs
 def leer_json_users():
@@ -106,7 +193,7 @@ def guardar_json_passwords(datos):
 
 # Endpoints de Usuarios
 @app.post("/register")
-def registrar_usuario(user: User):
+def registrar_usuario(user: User, response: Response):
     datos_users = leer_json_users()
     
     for usuario in datos_users["users"]:
@@ -121,26 +208,22 @@ def registrar_usuario(user: User):
     # Generar un salt único para este usuario
     salt = base64.urlsafe_b64encode(os.urandom(16)).decode()
     
-    # Hashear la contraseña del usuario (NO guardarla en texto plano)
+    # Hashear la contraseña del usuario
     password_hash = hash_password(user.password, salt)
     
     nuevo_usuario = {
         "uid": nuevo_uid,
         "email": user.email,
         "nombre": user.nombre,
-        "password_hash": password_hash,  # Guardamos el hash, no la contraseña
+        "password_hash": password_hash,
         "salt": salt
     }
     
     datos_users["users"].append(nuevo_usuario)
     guardar_json_users(datos_users)
     
-    return {
-        "mensaje": "Usuario registrado correctamente", 
-        "uid": nuevo_uid,
-        "email": user.email,
-        "nombre": user.nombre
-    }
+    # Auto-login después del registro
+    return login(LoginData(email=user.email, password=user.password), response)
 
 @app.post("/login")
 def login(login_data: LoginData, response: Response):
@@ -150,7 +233,7 @@ def login(login_data: LoginData, response: Response):
         if usuario["email"] == login_data.email:
             # Verificar la contraseña usando el hash
             if verificar_password(login_data.password, usuario["salt"], usuario["password_hash"]):
-                # Generar clave de encriptación para este usuario usando su contraseña
+                # Generar clave de encriptación para este usuario
                 salt_bytes = base64.urlsafe_b64decode(usuario["salt"])
                 clave = generar_clave_usuario(login_data.password, salt_bytes)
                 
@@ -161,7 +244,8 @@ def login(login_data: LoginData, response: Response):
                 sesiones_activas[token_sesion] = {
                     "uid": usuario["uid"],
                     "clave": clave,
-                    "nombre": usuario["nombre"]
+                    "nombre": usuario["nombre"],
+                    "email": usuario["email"]
                 }
                 
                 # Establecer cookie con el token
@@ -170,15 +254,20 @@ def login(login_data: LoginData, response: Response):
                     value=token_sesion,
                     httponly=True,
                     max_age=3600,
-                    secure=False,
-                    samesite="lax"
+                    secure=False,  # En producción, cambiar a True (HTTPS)
+                    samesite="lax",
+                    path="/"  # Importante: disponible en toda la API
                 )
+                
+                print(f"Login exitoso - Token: {token_sesion}")  # Debug
+                print(f"Sesiones activas: {list(sesiones_activas.keys())}")  # Debug
                 
                 return {
                     "mensaje": "Login exitoso",
                     "uid": usuario["uid"],
                     "nombre": usuario["nombre"],
-                    "email": usuario["email"]
+                    "email": usuario["email"],
+                    "token": token_sesion  # Opcional: devolver token para depuración
                 }
     
     raise HTTPException(status_code=401, detail="Email o contraseña incorrectos")
@@ -186,17 +275,47 @@ def login(login_data: LoginData, response: Response):
 @app.post("/logout")
 def logout(response: Response, session_token: Optional[str] = Cookie(None)):
     """Cerrar sesión"""
+    print(f"Logout - Token recibido: {session_token}")  # Debug
+    
     if session_token and session_token in sesiones_activas:
         del sesiones_activas[session_token]
+        print(f"Sesión eliminada. Sesiones restantes: {list(sesiones_activas.keys())}")  # Debug
     
-    response.delete_cookie("session_token")
+    response.delete_cookie("session_token", path="/")
     return {"mensaje": "Sesión cerrada correctamente"}
 
 def verificar_sesion(session_token: Optional[str] = Cookie(None)):
     """Función auxiliar para verificar la sesión"""
-    if not session_token or session_token not in sesiones_activas:
-        raise HTTPException(status_code=401, detail="No hay sesión activa")
+    print(f"Verificando sesión - Token recibido: {session_token}")  # Debug
+    print(f"Sesiones activas: {list(sesiones_activas.keys())}")  # Debug
+    
+    if not session_token:
+        raise HTTPException(
+            status_code=401, 
+            detail="No hay token de sesión. Por favor, inicia sesión primero."
+        )
+    
+    if session_token not in sesiones_activas:
+        raise HTTPException(
+            status_code=401, 
+            detail="Sesión inválida o expirada. Por favor, inicia sesión nuevamente."
+        )
+    
     return sesiones_activas[session_token]
+
+@app.get("/check-session")
+def check_session(session_token: Optional[str] = Cookie(None)):
+    """Verificar si la sesión es válida"""
+    try:
+        sesion = verificar_sesion(session_token)
+        return {
+            "valida": True,
+            "uid": sesion["uid"],
+            "nombre": sesion["nombre"],
+            "email": sesion["email"]
+        }
+    except HTTPException:
+        return {"valida": False}
 
 @app.put("/users/{userid}")
 def actualizar_usuario(userid: int, user_update: UserUpdate, session_token: Optional[str] = Cookie(None)):
@@ -256,11 +375,8 @@ def cambiar_password(userid: int, password_change: PasswordChange, session_token
             
             guardar_json_users(datos_users)
             
-            # Nota: Al cambiar la contraseña, se genera un nuevo salt y por lo tanto
-            # una nueva clave de encriptación. Esto significa que las contraseñas
-            # guardadas anteriormente ya no podrán desencriptarse.
-            # En un sistema real, habría que re-encriptar todas las contraseñas
-            # con la nueva clave o mantener un historial de claves.
+            # Nota: Al cambiar la contraseña, se genera un nuevo salt
+            # Las contraseñas guardadas anteriormente ya no podrán desencriptarse
             
             return {
                 "mensaje": "Contraseña cambiada correctamente",
@@ -274,17 +390,11 @@ def cambiar_password(userid: int, password_change: PasswordChange, session_token
 def obtener_mi_usuario(session_token: Optional[str] = Cookie(None)):
     """Obtener información del usuario actual"""
     sesion = verificar_sesion(session_token)
-    datos_users = leer_json_users()
-    
-    for usuario in datos_users["users"]:
-        if usuario["uid"] == sesion["uid"]:
-            return {
-                "uid": usuario["uid"],
-                "email": usuario["email"],
-                "nombre": usuario["nombre"]
-            }
-    
-    raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    return {
+        "uid": sesion["uid"],
+        "email": sesion["email"],
+        "nombre": sesion["nombre"]
+    }
 
 # Endpoints de Contraseñas de sitios web
 @app.get("/passwords")
@@ -337,7 +447,7 @@ def crear_password(password: Password, session_token: Optional[str] = Cookie(Non
     else:
         nuevo_id = 1
     
-    # Encriptar la contraseña antes de guardarla usando la clave de la sesión
+    # Encriptar la contraseña antes de guardarla
     password_encriptada = encriptar_password(password.password, sesion["clave"])
     
     nueva_password = {
@@ -433,6 +543,169 @@ def verificar_autologin(url: str, session_token: Optional[str] = Cookie(None)):
     
     return {"autologin": False}
 
+# NUEVO ENDPOINT: Generador de contraseñas seguras
+@app.post("/generate-password")
+def generar_password(request: PasswordGeneratorRequest):
+    """
+    Genera una contraseña segura basada en los criterios especificados.
+    Este endpoint NO requiere autenticación y NO guarda la contraseña generada.
+    """
+    try:
+        # Validar que la longitud sea razonable
+        if request.longitud < 4:
+            raise HTTPException(
+                status_code=400, 
+                detail="La longitud mínima es 4 caracteres por seguridad"
+            )
+        
+        if request.longitud > 128:
+            raise HTTPException(
+                status_code=400, 
+                detail="La longitud máxima permitida es 128 caracteres"
+            )
+        
+        # Validar que al menos un tipo de carácter esté seleccionado
+        if not any([request.mayusculas, request.minusculas, request.digitos, request.simbolos]):
+            raise HTTPException(
+                status_code=400, 
+                detail="Debes seleccionar al menos un tipo de carácter (mayúsculas, minúsculas, dígitos o símbolos)"
+            )
+        
+        # Generar la contraseña
+        password = generar_password_seguro(
+            longitud=request.longitud,
+            mayusculas=request.mayusculas,
+            minusculas=request.minusculas,
+            digitos=request.digitos,
+            simbolos=request.simbolos
+        )
+        
+        # Calcular la entropía aproximada de la contraseña
+        tipos_seleccionados = sum([request.mayusculas, request.minusculas, request.digitos, request.simbolos])
+        if tipos_seleccionados == 1:
+            if request.mayusculas:
+                tamano_conjunto = 26
+            elif request.minusculas:
+                tamano_conjunto = 26
+            elif request.digitos:
+                tamano_conjunto = 10
+            else:  # simbolos
+                tamano_conjunto = 27  # Aproximadamente
+        elif tipos_seleccionados == 2:
+            if request.mayusculas and request.minusculas:
+                tamano_conjunto = 52
+            elif request.mayusculas and request.digitos:
+                tamano_conjunto = 36
+            elif request.mayusculas and request.simbolos:
+                tamano_conjunto = 53
+            elif request.minusculas and request.digitos:
+                tamano_conjunto = 36
+            elif request.minusculas and request.simbolos:
+                tamano_conjunto = 53
+            else:  # digitos y simbolos
+                tamano_conjunto = 37
+        elif tipos_seleccionados == 3:
+            if request.mayusculas and request.minusculas and request.digitos:
+                tamano_conjunto = 62
+            elif request.mayusculas and request.minusculas and request.simbolos:
+                tamano_conjunto = 79
+            elif request.mayusculas and request.digitos and request.simbolos:
+                tamano_conjunto = 63
+            else:  # minusculas, digitos y simbolos
+                tamano_conjunto = 63
+        else:  # todos seleccionados
+            tamano_conjunto = 89  # 26+26+10+27 aprox
+        
+        entropia = request.longitud * (tamano_conjunto.bit_length())
+        
+        # Determinar la fortaleza de la contraseña
+        if entropia < 30:
+            fortaleza = "Muy débil"
+        elif entropia < 50:
+            fortaleza = "Débil"
+        elif entropia < 70:
+            fortaleza = "Moderada"
+        elif entropia < 90:
+            fortaleza = "Fuerte"
+        else:
+            fortaleza = "Muy fuerte"
+        
+        return {
+            "password": password,
+            "longitud": request.longitud,
+            "tipos_incluidos": {
+                "mayusculas": request.mayusculas,
+                "minusculas": request.minusculas,
+                "digitos": request.digitos,
+                "simbolos": request.simbolos
+            },
+            "entropia_aproximada": f"{entropia} bits",
+            "fortaleza": fortaleza,
+            "mensaje": "Contraseña generada correctamente. No se ha guardado en ningún lado."
+        }
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al generar la contraseña: {str(e)}")
+
+# Endpoint adicional: Obtener fortaleza de una contraseña existente
+@app.post("/check-password-strength")
+def check_password_strength(password: str, request: Optional[PasswordGeneratorRequest] = None):
+    """
+    Analiza la fortaleza de una contraseña existente.
+    Si no se proporcionan los criterios, se asume que se usaron todos los tipos de caracteres.
+    """
+    if not password:
+        raise HTTPException(status_code=400, detail="Debes proporcionar una contraseña")
+    
+    longitud = len(password)
+    
+    # Determinar qué tipos de caracteres contiene la contraseña
+    tiene_mayusculas = any(c.isupper() for c in password)
+    tiene_minusculas = any(c.islower() for c in password)
+    tiene_digitos = any(c.isdigit() for c in password)
+    tiene_simbolos = any(not c.isalnum() for c in password)
+    
+    # Calcular tamaño del conjunto basado en los tipos presentes
+    tamano_conjunto = 0
+    if tiene_mayusculas:
+        tamano_conjunto += 26
+    if tiene_minusculas:
+        tamano_conjunto += 26
+    if tiene_digitos:
+        tamano_conjunto += 10
+    if tiene_simbolos:
+        tamano_conjunto += 27  # Aproximado
+    
+    entropia = longitud * (tamano_conjunto.bit_length())
+    
+    # Determinar fortaleza
+    if entropia < 30:
+        fortaleza = "Muy débil"
+    elif entropia < 50:
+        fortaleza = "Débil"
+    elif entropia < 70:
+        fortaleza = "Moderada"
+    elif entropia < 90:
+        fortaleza = "Fuerte"
+    else:
+        fortaleza = "Muy fuerte"
+    
+    return {
+        "longitud": longitud,
+        "tipos_detectados": {
+            "mayusculas": tiene_mayusculas,
+            "minusculas": tiene_minusculas,
+            "digitos": tiene_digitos,
+            "simbolos": tiene_simbolos
+        },
+        "entropia_aproximada": f"{entropia} bits",
+        "fortaleza": fortaleza,
+        "recomendacion": "Usa mayúsculas, minúsculas, números y símbolos para mayor seguridad" if entropia < 50 else "Buena contraseña"
+    }
+
+# Endpoints de depuración
 @app.get("/debug/sesiones")
 def ver_sesiones():
     """Endpoint SOLO para depuración - muestra sesiones activas"""
@@ -445,7 +718,7 @@ def ver_passwords_raw():
 
 @app.get("/debug/users-raw")
 def ver_users_raw():
-    """Endpoint SOLO para depuración - muestra los usuarios (sin contraseñas en texto plano)"""
+    """Endpoint SOLO para depuración - muestra los usuarios"""
     datos = leer_json_users()
     # Ocultamos los hashes y salts para seguridad
     for user in datos["users"]:
@@ -456,21 +729,26 @@ def ver_users_raw():
 @app.get("/")
 def home():
     return {
-        "mensaje": "API de contraseñas multi-usuario CON ENCRIPTACIÓN AUTOMÁTICA",
-        "nota": "Las contraseñas de los usuarios se guardan hasheadas, no en texto plano. Las contraseñas de sitios web se encriptan automáticamente con la clave derivada de la contraseña del usuario.",
-        "endpoints": {
-            "POST /register": "Registrar nuevo usuario (contraseña hasheada automáticamente)",
-            "POST /login": "Iniciar sesión (establece cookie automática)",
-            "POST /logout": "Cerrar sesión",
-            "GET /users/me": "Ver mi información",
-            "PUT /users/{userid}": "Actualizar mi nombre/email",
-            "POST /users/{userid}/change-password": "Cambiar mi contraseña",
-            
-            "GET /passwords": "Ver TODAS mis contraseñas (desencriptadas automáticamente)",
-            "POST /passwords": "Crear nueva contraseña (se encripta automáticamente)",
-            "GET /passwords/{id}": "Ver una contraseña específica",
-            "PATCH /passwords/{id}": "Actualizar password/autologin",
-            "DELETE /passwords/{id}": "Eliminar contraseña",
-            "GET /autologin/{url}": "Verificar autologin para una URL"
+        "mensaje": "API de contraseñas multi-usuario",
+        "nota": "Las sesiones se manejan automáticamente con cookies. No necesitas enviar tokens manualmente.",
+        "instrucciones": {
+            "registro": "POST /register - Crea usuario y inicia sesión automáticamente",
+            "login": "POST /login - Inicia sesión (establece cookie automática)",
+            "verificar_sesion": "GET /check-session - Verifica si la cookie es válida",
+            "ver_passwords": "GET /passwords - Obtiene tus contraseñas (usa la cookie automáticamente)"
+        },
+        "nuevos_endpoints_generador": {
+            "POST /generate-password": "Genera una contraseña segura (NO requiere autenticación)",
+            "POST /check-password-strength": "Analiza la fortaleza de una contraseña existente"
+        },
+        "ejemplo_uso_generador": {
+            "url": "POST /generate-password",
+            "body": {
+                "longitud": 12,
+                "mayusculas": True,
+                "minusculas": True,
+                "digitos": True,
+                "simbolos": True
+            }
         }
     }
