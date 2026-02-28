@@ -4,12 +4,20 @@ const viewPassword = document.getElementById('view-password');
 const viewComentario = document.getElementById('view-comentario');
 const viewAutologin = document.getElementById('view-autologin');
 const deleteBtn = document.getElementById('deleteBtn');
+const changePasswordBtn = document.getElementById('changePasswordBtn');
 const backBtn = document.getElementById('backBtn');
 const confirmModal = document.getElementById('confirmModal');
+const changePasswordModal = document.getElementById('changePasswordModal');
 const cancelBtn = document.getElementById('cancelBtn');
 const confirmDeleteBtn = document.getElementById('confirmDeleteBtn');
+const cancelChangeBtn = document.getElementById('cancelChangeBtn');
+const confirmChangeBtn = document.getElementById('confirmChangeBtn');
+const currentPassword = document.getElementById('currentPassword');
+const newPassword = document.getElementById('newPassword');
+const confirmNewPassword = document.getElementById('confirmNewPassword');
 
 let currentPasswordId = null;
+let currentEmail = null;
 
 // Back button
 backBtn.addEventListener('click', () => {
@@ -50,6 +58,7 @@ async function cargarDetalles() {
             const password = await response.json();
             viewUrl.textContent = password.url || '-';
             viewEmail.textContent = password.email || '-';
+            currentEmail = password.email;
             viewPassword.textContent = password.password || '-';
             viewComentario.textContent = password.comentario || '-';
             viewAutologin.checked = password.autologin || false;
@@ -76,6 +85,72 @@ cancelBtn.addEventListener('click', () => {
 confirmModal.addEventListener('click', (e) => {
     if (e.target === confirmModal) {
         confirmModal.classList.remove('show');
+    }
+});
+
+changePasswordModal.addEventListener('click', (e) => {
+    if (e.target === changePasswordModal) {
+        changePasswordModal.classList.remove('show');
+    }
+});
+
+// Show change password modal
+changePasswordBtn.addEventListener('click', () => {
+    currentPassword.value = '';
+    newPassword.value = '';
+    confirmNewPassword.value = '';
+    changePasswordModal.classList.add('show');
+});
+
+// Cancel change password
+cancelChangeBtn.addEventListener('click', () => {
+    changePasswordModal.classList.remove('show');
+});
+
+// Confirm change password
+confirmChangeBtn.addEventListener('click', async () => {
+    const current = currentPassword.value;
+    const newPwd = newPassword.value;
+    const confirmPwd = confirmNewPassword.value;
+
+    if (!current || !newPwd || !confirmPwd) {
+        return;
+    }
+
+    if (newPwd !== confirmPwd) {
+        return;
+    }
+
+    if (newPwd.length < 6) {
+        return;
+    }
+
+    try {
+        const result = await new Promise((resolve) => {
+            browser.storage.local.get(['authToken'], resolve);
+        });
+
+        const response = await fetch(
+            `https://ragnarok-uegm.onrender.com/users/${currentEmail}/change-password`,
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${result.authToken}`
+                },
+                body: JSON.stringify({
+                    password_actual: current,
+                    password_nueva: newPwd
+                })
+            }
+        );
+
+        if (response.ok) {
+            changePasswordModal.classList.remove('show');
+            window.location.href = './popup.html';
+        }
+    } catch (error) {
+        console.error('Error cambiando contraseña:', error);
     }
 });
 

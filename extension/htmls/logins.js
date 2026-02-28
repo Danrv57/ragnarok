@@ -6,39 +6,33 @@ const inputPassword = document.getElementById('input-pass');
 const inputComentario = document.getElementById('input-text');
 const strengthDiv = document.getElementById('password-strength');
 const saveBtn = document.getElementById('saveBtn');
+const backBtn = document.getElementById('backBtn');
 const inputAutologin = document.getElementById('input-autologin');
 
 // Cargar dato seleccionado si existe (desde API)
 async function cargarDatoSeleccionado() {
-    try {
-        const result = await new Promise((resolve) => {
-            browser.storage.local.get(['selectedLoginId', 'authToken'], resolve);
-        });
-        
-        if (result.selectedLoginId && result.authToken) {
-            const response = await fetch(
-                `https://ragnarok-uegm.onrender.com/passwords/${result.selectedLoginId}`,
-                {
-                    headers: {
-                        'Authorization': `Bearer ${result.authToken}`
-                    }
-                }
-            );
-            if (response.ok) {
-                const password = await response.json();
-                inputUrl.value = password.url || '';
-                inputEmail.value = password.email || '';
-                inputPassword.value = password.password || '';
-                inputComentario.value = password.comentario || '';
-                inputAutologin.checked = password.autologin || false;
-            }
-        }
-    } catch (error) {
-        console.error('Error cargando dato:', error);
-    }
+    // Limpiar campos para nueva contraseña
+    inputUrl.value = '';
+    inputEmail.value = '';
+    inputPassword.value = '';
+    inputComentario.value = '';
+    inputAutologin.checked = false;
 }
 
 cargarDatoSeleccionado();
+
+// Auto-fill URL from active tab
+browser.tabs.query({active: true, currentWindow: true}, (tabs) => {
+    if (tabs && tabs.length > 0) {
+        try {
+            const url = tabs[0].url;
+            const dominio = new URL(url).hostname;
+            inputUrl.value = dominio;
+        } catch (error) {
+            console.error('Error extrayendo dominio:', error);
+        }
+    }
+});
 
 // Función para analizar contraseña
 function analizarContraseña(pwd) {
