@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Cookie, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Set
 import json
 import base64
 import os
@@ -12,6 +12,7 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 import hashlib
+import glob
 
 app = FastAPI()
 
@@ -26,6 +27,68 @@ app.add_middleware(
 
 # Diccionario para almacenar sesiones activas
 sesiones_activas = {}
+
+# Cache para contraseñas vulneradas
+contrasenas_vulneradas: Set[str] = set()
+
+# Cargar contraseñas vulneradas al iniciar la aplicación
+def cargar_contrasenas_vulneradas():
+    """Carga todas las contraseñas de los archivos en la carpeta rockyou"""
+    global contrasenas_vulneradas
+    contrasenas_vulneradas = set()
+    
+    # Buscar todos los archivos .txt en la carpeta rockyou
+    archivos_txt = glob.glob('rockyou/*.txt')
+    
+    if not archivos_txt:
+        print("❌ ADVERTENCIA: No se encontraron archivos .txt en la carpeta rockyou")
+        print("   Asegúrate de que la carpeta 'rockyou' existe y contiene archivos .txt")
+        return
+    
+    total_cargadas = 0
+    for archivo in archivos_txt:
+        try:
+            # Intentar con UTF-8 primero
+            with open(archivo, 'r', encoding='utf-8') as f:
+                lineas = f.readlines()
+                
+            for linea in lineas:
+                password = linea.strip()  # Eliminar espacios y saltos de línea
+                if password:  # Ignorar líneas vacías
+                    contrasenas_vulneradas.add(password)
+            
+            print(f"✅ Cargadas {len(contrasenas_vulneradas) - total_cargadas} contraseñas desde {archivo}")
+            total_cargadas = len(contrasenas_vulneradas)
+            
+        except UnicodeDecodeError:
+            # Si falla UTF-8, intentar con latin-1
+            try:
+                with open(archivo, 'r', encoding='latin-1') as f:
+                    lineas = f.readlines()
+                
+                for linea in lineas:
+                    password = linea.strip()
+                    if password:
+                        contrasenas_vulneradas.add(password)
+                
+                print(f"✅ Cargadas {len(contrasenas_vulneradas) - total_cargadas} contraseñas desde {archivo} (latin-1)")
+                total_cargadas = len(contrasenas_vulneradas)
+                
+            except Exception as e:
+                print(f"❌ Error al cargar {archivo}: {e}")
+        except Exception as e:
+            print(f"❌ Error al procesar {archivo}: {e}")
+    
+    print(f"\n📊 TOTAL: {len(contrasenas_vulneradas)} contraseñas vulneradas cargadas en memoria")
+    
+    # Mostrar algunas contraseñas de ejemplo para verificar
+    if len(contrasenas_vulneradas) > 0:
+        ejemplos = sorted(list(contrasenas_vulneradas))[:10]
+        print(f"📝 Ejemplos de las primeras 10: {ejemplos}")
+
+# Cargar las contraseñas al iniciar
+print("🔄 Cargando contraseñas vulneradas...")
+cargar_contrasenas_vulneradas()
 
 # Modelos de datos
 class User(BaseModel):
@@ -99,6 +162,18 @@ def hash_password(password: str, salt: str) -> str:
 def verificar_password(password: str, salt: str, hash_almacenado: str) -> bool:
     """Verifica si la contraseña proporcionada coincide con el hash almacenado"""
     return hash_password(password, salt) == hash_almacenado
+
+# Función simplificada para verificar si una contraseña está vulnerada
+def verificar_password_vulnerada(password: str) -> bool:
+    """
+    Verifica si una contraseña está en la lista de vulneradas.
+    Versión simple para archivos con una contraseña por línea.
+    """
+    if not password or not contrasenas_vulneradas:
+        return False
+    
+    # Comparación directa (case-sensitive como en tus archivos)
+    return password in contrasenas_vulneradas
 
 # Función para generar contraseñas seguras
 def generar_password_seguro(longitud: int, mayusculas: bool, minusculas: bool, digitos: bool, simbolos: bool) -> str:
@@ -195,6 +270,9 @@ def guardar_json_passwords(datos):
 def registrar_usuario(user: User, response: Response):
     datos_users = leer_json_users()
     
+    # Verificar si la contraseña está vulnerada
+    password_vulnerada = verificar_password_vulnerada(user.password)
+    
     for usuario in datos_users["users"]:
         if usuario["email"] == user.email:
             raise HTTPException(status_code=400, detail="Email ya registrado")
@@ -222,7 +300,14 @@ def registrar_usuario(user: User, response: Response):
     guardar_json_users(datos_users)
     
     # Auto-login después del registro
-    return login(LoginData(email=user.email, password=user.password), response)
+    resultado_login = login(LoginData(email=user.email, password=user.password), response)
+    
+    # Si la contraseña está vulnerada, añadir advertencia
+    if password_vulnerada:
+        if isinstance(resultado_login, dict):
+            resultado_login["advertencia"] = "⚠️ La contraseña que has utilizado está en la lista de contraseñas vulneradas. Por seguridad, te recomendamos cambiarla inmediatamente."
+    
+    return resultado_login
 
 @app.post("/login")
 def login(login_data: LoginData, response: Response):
@@ -232,6 +317,9 @@ def login(login_data: LoginData, response: Response):
         if usuario["email"] == login_data.email:
             # Verificar la contraseña usando el hash
             if verificar_password(login_data.password, usuario["salt"], usuario["password_hash"]):
+                # Verificar si la contraseña está vulnerada
+                password_vulnerada = verificar_password_vulnerada(login_data.password)
+                
                 # Generar clave de encriptación para este usuario
                 salt_bytes = base64.urlsafe_b64decode(usuario["salt"])
                 clave = generar_clave_usuario(login_data.password, salt_bytes)
@@ -261,13 +349,19 @@ def login(login_data: LoginData, response: Response):
                 print(f"Login exitoso - Token: {token_sesion}")  # Debug
                 print(f"Sesiones activas: {list(sesiones_activas.keys())}")  # Debug
                 
-                return {
+                resultado = {
                     "mensaje": "Login exitoso",
                     "uid": usuario["uid"],
                     "nombre": usuario["nombre"],
                     "email": usuario["email"],
                     "token": token_sesion  # Opcional: devolver token para depuración
                 }
+                
+                # Añadir advertencia si la contraseña está vulnerada
+                if password_vulnerada:
+                    resultado["advertencia"] = "⚠️ Tu contraseña está en la lista de contraseñas vulneradas. Por seguridad, te recomendamos cambiarla inmediatamente."
+                
+                return resultado
     
     raise HTTPException(status_code=401, detail="Email o contraseña incorrectos")
 
@@ -307,6 +401,7 @@ def check_session(session_token: Optional[str] = Cookie(None)):
     """Verificar si la sesión es válida"""
     try:
         sesion = verificar_sesion(session_token)
+        
         return {
             "valida": True,
             "uid": sesion["uid"],
@@ -354,6 +449,9 @@ def cambiar_password(email: str, password_change: PasswordChange, session_token:
     if sesion["email"] != email:
         raise HTTPException(status_code=403, detail="No tienes permiso para cambiar esta contraseña")
     
+    # Verificar si la nueva contraseña está vulnerada
+    password_vulnerada = verificar_password_vulnerada(password_change.password_nueva)
+    
     datos_users = leer_json_users()
     
     for i, usuario in enumerate(datos_users["users"]):
@@ -361,6 +459,10 @@ def cambiar_password(email: str, password_change: PasswordChange, session_token:
             # Verificar contraseña actual usando el hash
             if not verificar_password(password_change.password_actual, usuario["salt"], usuario["password_hash"]):
                 raise HTTPException(status_code=401, detail="Contraseña actual incorrecta")
+            
+            # Si la nueva contraseña está vulnerada, permitir el cambio pero advertir
+            if password_vulnerada:
+                print(f"ADVERTENCIA: Usuario {email} está cambiando a una contraseña vulnerada")
             
             # Generar nuevo salt para la nueva contraseña
             nuevo_salt = base64.urlsafe_b64encode(os.urandom(16)).decode()
@@ -374,14 +476,16 @@ def cambiar_password(email: str, password_change: PasswordChange, session_token:
             
             guardar_json_users(datos_users)
             
-            # Nota: Al cambiar la contraseña, se genera un nuevo salt
-            # Las contraseñas guardadas anteriormente ya no podrán desencriptarse
-            
-            return {
+            resultado = {
                 "mensaje": "Contraseña cambiada correctamente",
                 "email": email,
                 "nota": "Las contraseñas guardadas anteriormente ya no son accesibles con la nueva contraseña"
             }
+            
+            if password_vulnerada:
+                resultado["advertencia"] = "⚠️ La nueva contraseña está en la lista de contraseñas vulneradas. Por seguridad, elige una contraseña más segura."
+            
+            return resultado
     
     raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
@@ -408,6 +512,10 @@ def obtener_mis_passwords(session_token: Optional[str] = Cookie(None)):
         if p["userid"] == sesion["uid"]:
             password_desc = p.copy()
             password_desc["password"] = desencriptar_password(p["password"], sesion["clave"])
+            
+            # Verificar si la contraseña está vulnerada
+            password_desc["vulnerada"] = verificar_password_vulnerada(password_desc["password"])
+            
             passwords_usuario.append(password_desc)
     
     return passwords_usuario
@@ -425,6 +533,10 @@ def obtener_password(id: int, session_token: Optional[str] = Cookie(None)):
             
             password_desc = password.copy()
             password_desc["password"] = desencriptar_password(password["password"], sesion["clave"])
+            
+            # Verificar si la contraseña está vulnerada
+            password_desc["vulnerada"] = verificar_password_vulnerada(password_desc["password"])
+            
             return password_desc
     
     raise HTTPException(status_code=404, detail="Contraseña no encontrada")
@@ -433,6 +545,9 @@ def obtener_password(id: int, session_token: Optional[str] = Cookie(None)):
 def crear_password(password: Password, session_token: Optional[str] = Cookie(None)):
     """Crear una nueva contraseña (se guarda encriptada automáticamente)"""
     sesion = verificar_sesion(session_token)
+    
+    # Verificar si la contraseña está vulnerada
+    password_vulnerada = verificar_password_vulnerada(password.password)
     
     datos_pass = leer_json_passwords()
     
@@ -461,6 +576,11 @@ def crear_password(password: Password, session_token: Optional[str] = Cookie(Non
     # Devolver la contraseña desencriptada
     respuesta = nueva_password.copy()
     respuesta["password"] = password.password
+    
+    # Añadir advertencia si la contraseña está vulnerada
+    if password_vulnerada:
+        respuesta["advertencia"] = "⚠️ Esta contraseña está en la lista de contraseñas vulneradas. Te recomendamos usar una contraseña más segura."
+    
     return respuesta
 
 @app.patch("/passwords/{id}")
@@ -474,8 +594,10 @@ def actualizar_password(id: int, password_update: PasswordUpdate, session_token:
             if p["userid"] != sesion["uid"]:
                 raise HTTPException(status_code=403, detail="No tienes permiso para modificar esta contraseña")
             
-            # Actualizar SOLO los campos permitidos
+            password_vulnerada = False
             if password_update.password is not None:
+                # Verificar si la nueva contraseña está vulnerada
+                password_vulnerada = verificar_password_vulnerada(password_update.password)
                 datos_pass["passwords"][i]["password"] = encriptar_password(password_update.password, sesion["clave"])
             
             if password_update.autologin is not None:
@@ -487,7 +609,7 @@ def actualizar_password(id: int, password_update: PasswordUpdate, session_token:
             password_actualizada = datos_pass["passwords"][i].copy()
             password_actualizada["password"] = password_update.password or desencriptar_password(p["password"], sesion["clave"])
             
-            return {
+            resultado = {
                 "mensaje": "Contraseña actualizada correctamente",
                 "id": password_actualizada["id"],
                 "url": password_actualizada["url"],
@@ -495,6 +617,11 @@ def actualizar_password(id: int, password_update: PasswordUpdate, session_token:
                 "autologin": password_actualizada["autologin"],
                 "comentario": password_actualizada.get("comentario")
             }
+            
+            if password_vulnerada:
+                resultado["advertencia"] = "⚠️ La nueva contraseña está en la lista de contraseñas vulneradas. Te recomendamos usar una contraseña más segura."
+            
+            return resultado
     
     raise HTTPException(status_code=404, detail="Contraseña no encontrada")
 
@@ -529,12 +656,20 @@ def verificar_autologin(url: str, session_token: Optional[str] = Cookie(None)):
     
     for password in datos_pass["passwords"]:
         if password["url"] == url and password["userid"] == sesion["uid"]:
-            return {
+            password_texto = desencriptar_password(password["password"], sesion["clave"])
+            
+            resultado = {
                 "autologin": password["autologin"],
                 "url": password["url"],
                 "email": password["email"],
-                "password": desencriptar_password(password["password"], sesion["clave"]) if password["autologin"] else None
+                "password": password_texto if password["autologin"] else None
             }
+            
+            if password["autologin"]:
+                # Verificar si la contraseña está vulnerada
+                resultado["password_vulnerada"] = verificar_password_vulnerada(password_texto)
+            
+            return resultado
     
     return {"autologin": False}
 
@@ -574,6 +709,9 @@ def generar_password(request: PasswordGeneratorRequest):
             digitos=request.digitos,
             simbolos=request.simbolos
         )
+        
+        # Verificar si la contraseña generada está vulnerada (aunque es muy improbable)
+        password_vulnerada = verificar_password_vulnerada(password)
         
         # Calcular la entropía aproximada de la contraseña
         tipos_seleccionados = sum([request.mayusculas, request.minusculas, request.digitos, request.simbolos])
@@ -625,7 +763,7 @@ def generar_password(request: PasswordGeneratorRequest):
         else:
             fortaleza = "Muy fuerte"
         
-        return {
+        resultado = {
             "password": password,
             "longitud": request.longitud,
             "tipos_incluidos": {
@@ -639,6 +777,11 @@ def generar_password(request: PasswordGeneratorRequest):
             "mensaje": "Contraseña generada correctamente. No se ha guardado en ningún lado."
         }
         
+        if password_vulnerada:
+            resultado["advertencia"] = "⚠️ La contraseña generada está en la lista de vulneradas (esto es extremadamente raro). Por favor, genera otra."
+        
+        return resultado
+        
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -646,13 +789,15 @@ def generar_password(request: PasswordGeneratorRequest):
 
 # Endpoint adicional: Obtener fortaleza de una contraseña existente
 @app.post("/check-password-strength")
-def check_password_strength(password: str, request: Optional[PasswordGeneratorRequest] = None):
+def check_password_strength(password: str):
     """
-    Analiza la fortaleza de una contraseña existente.
-    Si no se proporcionan los criterios, se asume que se usaron todos los tipos de caracteres.
+    Analiza la fortaleza de una contraseña existente y verifica si está vulnerada.
     """
     if not password:
         raise HTTPException(status_code=400, detail="Debes proporcionar una contraseña")
+    
+    # Verificar si la contraseña está vulnerada
+    password_vulnerada = verificar_password_vulnerada(password)
     
     longitud = len(password)
     
@@ -687,7 +832,7 @@ def check_password_strength(password: str, request: Optional[PasswordGeneratorRe
     else:
         fortaleza = "Muy fuerte"
     
-    return {
+    resultado = {
         "longitud": longitud,
         "tipos_detectados": {
             "mayusculas": tiene_mayusculas,
@@ -697,8 +842,78 @@ def check_password_strength(password: str, request: Optional[PasswordGeneratorRe
         },
         "entropia_aproximada": f"{entropia} bits",
         "fortaleza": fortaleza,
-        "recomendacion": "Usa mayúsculas, minúsculas, números y símbolos para mayor seguridad" if entropia < 50 else "Buena contraseña"
+        "vulnerada": password_vulnerada,
+        "recomendacion": []
     }
+    
+    # Generar recomendaciones personalizadas
+    if password_vulnerada:
+        resultado["recomendacion"].append("⚠️ Esta contraseña está en la lista de contraseñas vulneradas. ¡NO LA USES!")
+    
+    if entropia < 50:
+        resultado["recomendacion"].append("Usa mayúsculas, minúsculas, números y símbolos para mayor seguridad")
+        resultado["recomendacion"].append("Aumenta la longitud de la contraseña")
+    
+    if not tiene_mayusculas:
+        resultado["recomendacion"].append("Incluye letras mayúsculas")
+    if not tiene_minusculas:
+        resultado["recomendacion"].append("Incluye letras minúsculas")
+    if not tiene_digitos:
+        resultado["recomendacion"].append("Incluye números")
+    if not tiene_simbolos:
+        resultado["recomendacion"].append("Incluye símbolos especiales")
+    
+    if longitud < 8:
+        resultado["recomendacion"].append("La longitud mínima recomendada es de 8 caracteres")
+    elif longitud < 12:
+        resultado["recomendacion"].append("Considera usar al menos 12 caracteres para mayor seguridad")
+    
+    if not resultado["recomendacion"]:
+        resultado["recomendacion"].append("Excelente contraseña!")
+    
+    return resultado
+
+# Endpoint para obtener estadísticas de vulnerabilidad del usuario
+@app.get("/security-stats")
+def obtener_estadisticas_seguridad(session_token: Optional[str] = Cookie(None)):
+    """Obtiene estadísticas de seguridad del usuario"""
+    sesion = verificar_sesion(session_token)
+    
+    # Obtener todas las contraseñas del usuario
+    datos_pass = leer_json_passwords()
+    passwords_usuario = [p for p in datos_pass["passwords"] if p["userid"] == sesion["uid"]]
+    
+    if not passwords_usuario:
+        return {
+            "total_passwords": 0,
+            "passwords_vulneradas": 0,
+            "porcentaje_vulneradas": 0,
+            "mensaje": "No tienes contraseñas guardadas"
+        }
+    
+    # Verificar cuántas están vulneradas
+    passwords_vulneradas = 0
+    for p in passwords_usuario:
+        password_texto = desencriptar_password(p["password"], sesion["clave"])
+        if verificar_password_vulnerada(password_texto):
+            passwords_vulneradas += 1
+    
+    porcentaje = (passwords_vulneradas / len(passwords_usuario)) * 100
+    
+    resultado = {
+        "total_passwords": len(passwords_usuario),
+        "passwords_vulneradas": passwords_vulneradas,
+        "porcentaje_vulneradas": round(porcentaje, 2)
+    }
+    
+    if passwords_vulneradas > 0:
+        resultado["recomendacion"] = f"Tienes {passwords_vulneradas} contraseñas vulneradas. Te recomendamos cambiarlas inmediatamente."
+        resultado["urgencia"] = "ALTA" if porcentaje > 50 else "MEDIA"
+    else:
+        resultado["recomendacion"] = "¡Todas tus contraseñas son seguras!"
+        resultado["urgencia"] = "BAJA"
+    
+    return resultado
 
 # Endpoints de depuración
 @app.get("/debug/sesiones")
@@ -721,20 +936,64 @@ def ver_users_raw():
         user["salt"] = "[OCULTO]"
     return datos
 
+@app.get("/debug/verificar-carga")
+def verificar_carga_rockyou():
+    """Endpoint para verificar que las contraseñas se cargaron correctamente"""
+    if not contrasenas_vulneradas:
+        return {
+            "status": "error",
+            "mensaje": "No hay contraseñas cargadas",
+            "archivos_buscados": glob.glob('rockyou/*.txt'),
+            "consejo": "Verifica que la carpeta 'rockyou' existe y contiene archivos .txt"
+        }
+    
+    # Buscar algunas contraseñas comunes para verificar
+    passwords_prueba = ["123456", "password", "iloveyou", "princess", "rockyou", "123456789", "abc123"]
+    resultados = {}
+    
+    for p in passwords_prueba:
+        resultados[p] = p in contrasenas_vulneradas
+    
+    return {
+        "status": "ok",
+        "total_contrasenas": len(contrasenas_vulneradas),
+        "archivos_encontrados": glob.glob('rockyou/*.txt'),
+        "verificacion_passwords_comunes": resultados,
+        "muestra_primeras_20": sorted(list(contrasenas_vulneradas))[:20]
+    }
+
+@app.get("/debug/rockyou-stats")
+def ver_rockyou_stats():
+    """Endpoint SOLO para depuración - muestra estadísticas de rockyou"""
+    return {
+        "total_contrasenas_cargadas": len(contrasenas_vulneradas),
+        "archivos_cargados": glob.glob('rockyou/*.txt')
+    }
+
 @app.get("/")
 def home():
     return {
-        "mensaje": "API de contraseñas multi-usuario",
+        "mensaje": "API de contraseñas multi-usuario con verificación de contraseñas vulneradas",
         "nota": "Las sesiones se manejan automáticamente con cookies. No necesitas enviar tokens manualmente.",
+        "seguridad": {
+            "verificacion_vulneradas": "✓ Las contraseñas se verifican automáticamente contra la base de datos rockyou",
+            "archivos_cargados": f"{len(contrasenas_vulneradas)} contraseñas vulneradas en memoria",
+            "advertencias": "Se muestran advertencias cuando se detectan contraseñas vulneradas"
+        },
         "instrucciones": {
             "registro": "POST /register - Crea usuario y inicia sesión automáticamente",
             "login": "POST /login - Inicia sesión (establece cookie automática)",
             "verificar_sesion": "GET /check-session - Verifica si la cookie es válida",
-            "ver_passwords": "GET /passwords - Obtiene tus contraseñas (usa la cookie automáticamente)"
+            "ver_passwords": "GET /passwords - Obtiene tus contraseñas (con indicador de vulnerabilidad)",
+            "security-stats": "GET /security-stats - Estadísticas de seguridad de tus contraseñas"
         },
         "nuevos_endpoints_generador": {
             "POST /generate-password": "Genera una contraseña segura (NO requiere autenticación)",
-            "POST /check-password-strength": "Analiza la fortaleza de una contraseña existente"
+            "POST /check-password-strength": "Analiza la fortaleza de una contraseña existente y verifica si está vulnerada"
+        },
+        "debug_endpoints": {
+            "GET /debug/verificar-carga": "Verifica que las contraseñas de rockyou se cargaron correctamente",
+            "GET /debug/rockyou-stats": "Muestra estadísticas de las contraseñas cargadas"
         },
         "ejemplo_uso_generador": {
             "url": "POST /generate-password",
