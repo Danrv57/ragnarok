@@ -74,7 +74,7 @@ def cargar_contrasenas_vulneradas():
     contrasenas_vulneradas = set()
     
     # Buscar todos los archivos .txt en la carpeta rockyou
-    archivos_txt = glob.glob('../rockyou/*.txt') <- Pruebas locales
+    archivos_txt = glob.glob('../rockyou/*.txt')
     #ROCKYOU_DIR = Path(__file__).parent.parent / "rockyou"
     #iarchivos_txt = list(ROCKYOU_DIR.glob("*.txt"))
     
