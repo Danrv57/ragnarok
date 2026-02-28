@@ -256,3 +256,22 @@ async function fetchAndShowAutofill(url, tabId) {
 
 
 
+
+// Función para prueba manual desde console del background
+window.testPopup = function() {
+    console.log('🔐 Opening test popup...');
+    browser.storage.local.set({
+        popupMode: 'save',
+        popupData: {
+            url: 'test.com',
+            email: 'test@example.com',
+            password: 'test123'
+        }
+    }).then(() => {
+        console.log('🔐 Test data saved to storage');
+        browser.runtime.openOptionsPage().catch(err => {
+            console.error('🔐 Error opening popup:', err);
+        });
+    });
+};
+console.log('🔐 Type window.testPopup() in console to test');

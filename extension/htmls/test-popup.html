@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Test Popup</title>
+  <style>
+    body {
+      font-family: Arial;
+      padding: 20px;
+    }
+    button {
+      padding: 10px 20px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h1>Test Popup</h1>
+  <button id="testBtn">Send Test Message</button>
+  <p id="result"></p>
+  
+  <script>
+    console.log('🔐 Test popup loaded');
+    document.getElementById('testBtn').addEventListener('click', () => {
+      console.log('🔐 Test button clicked');
+      browser.runtime.sendMessage({
+        action: 'getPopupMode'
+      }).then(response => {
+        console.log('🔐 Response:', response);
+        document.getElementById('result').textContent = JSON.stringify(response, null, 2);
+      }).catch(err => {
+        console.error('🔐 Error:', err);
+        document.getElementById('result').textContent = 'Error: ' + err.message;
+      });
+    });
+  </script>
+</body>
+</html>
