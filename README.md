@@ -11,7 +11,7 @@ Sistema de gestión y validación de contraseñas basado en FastAPI. Ragnarok pr
 - **Versión**: 1.0.0
 - **Python**: 3.8+
 
-## 📋 Contenido
+## Contenido
 
 - **Introducción**: Descripción general del proyecto
 - **Guía de instalación**: Configuración del entorno
@@ -19,7 +19,7 @@ Sistema de gestión y validación de contraseñas basado en FastAPI. Ragnarok pr
 - **Referencia técnica**: Estructura de datos y seguridad
 - **FAQ**: Preguntas frecuentes
 
-## 🛠 Instalación
+## Instalación
 
 ### Requisitos previos
 - Python 3.8 o superior
@@ -40,7 +40,7 @@ source venv/bin/activate  # En Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-## 🚀 Uso
+## Uso
 
 ### Ejecutar servidor local
 
@@ -70,7 +70,7 @@ POST /login
 POST /validate-password
 ```
 
-## 📁 Estructura del proyecto
+## Estructura del proyecto
 
 ```
 ragnarok/
@@ -88,26 +88,26 @@ ragnarok/
 └── README.md             # Este archivo
 ```
 
-## 🔐 Seguridad
+## Seguridad
 
 - Las contraseñas se cifran usando Fernet (criptografía simétrica)
 - PBKDF2 para derivación de claves
 - CORS habilitado para acceso controlado
 - Tokens de sesión con secrets seguros
 
-## 🤝 Contribución
+## Contribución
 
 ¡Las contribuciones son bienvenidas! Por favor, consulta [CONTRIBUTING.md](CONTRIBUTING.md) para más detalles.
 
-## 📋 Código de Conducta
+## Código de Conducta
 
 Este proyecto adhiere a un Código de Conducta. Por favor, consulta [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
-## 📄 Licencia
+## Licencia
 
 Este proyecto está bajo la licencia [LICENSE](LICENSE)
 
-## ❓ FAQ
+## FAQ
 
 **¿Cómo reseteo mi contraseña?**  
 Puedes usar el endpoint `/reset-password` con tu usuario.
@@ -118,6 +118,6 @@ Sí, utilizamos criptografía moderna (Fernet) para cifrar todas las contraseña
 **¿Puedo usar esto en producción?**  
 Este es un proyecto educativo. Para producción, considera medidas de seguridad adicionales como HTTPS, bases de datos persistentes, etc.
 
-## 📞 Soporte
+## Soporte
 
 Para reportar bugs o sugerir mejoras, abre un issue en el repositorio.
