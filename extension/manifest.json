@@ -1,8 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "Bienvenida Simple",
+  "name": "Ragnarok",
   "version": "1.0",
-  "description": "Muestra un mensaje de bienvenida",
+  "description": "programa para organizar las contraseñas",
+  "icons": {
+  	"48":"icon.png","96":"icon.png","128":"icon.png"
+  },
   "action": {
     "default_popup": "htmls/popup.html"
   },

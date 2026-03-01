@@ -23,6 +23,17 @@ let currentEmail = null;
 let currentPasswordValue = null;
 let passwordVisible = false;
 
+function showToast(message, type = 'breach') {
+	const toast = document.createElement('div');
+	toast.className = `toast ${type}`;
+	toast.textContent = message;
+	document.body.appendChild(toast);
+	
+	setTimeout(() => {
+		toast.remove();
+	}, 4000);
+}
+
 // Back button
 backBtn.addEventListener('click', () => {
     window.location.href = './popup.html';
@@ -80,6 +91,11 @@ async function cargarDetalles() {
             passwordText.textContent = '•'.repeat(currentPasswordValue.length);
             viewComentario.textContent = password.comentario || '-';
             viewAutologin.checked = password.autologin || false;
+            
+            // Show breach warning if password is compromised
+            if (password.password_vulnerada) {
+                showToast('⚠️ Esta contraseña ha sido vulnerada. Se recomienda cambiarla.', 'breach');
+            }
         } else {
             window.location.href = './popup.html';
         }
@@ -164,8 +180,19 @@ confirmChangeBtn.addEventListener('click', async () => {
         );
 
         if (response.ok) {
+            const responseData = await response.json();
             changePasswordModal.classList.remove('show');
-            window.location.href = './popup.html';
+            
+            // Show breach warning if the new password is compromised
+            if (responseData.password_vulnerada) {
+                showToast('⚠️ La nueva contraseña ha sido vulnerada. Se recomienda cambiarla nuevamente.', 'breach');
+                // Reload after showing the warning
+                setTimeout(() => {
+                    window.location.href = './popup.html';
+                }, 4500);
+            } else {
+                window.location.href = './popup.html';
+            }
         }
     } catch (error) {
         console.error('Error cambiando contraseña:', error);
